@@ -18,6 +18,10 @@
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -behaviour(gen_server).
 
 -export([ start_link/0
@@ -328,14 +332,22 @@ is_set_elem(Resource, ResourceSet) when is_map(ResourceSet) ->
 
 force_kill_lock_owner(Pid, Resource) ->
     logger:error("kill ~p as it has held the lock for too long, resource: ~p", [Pid, Resource]),
-    Status = get_process_info(Pid),
+    Fields = [status, message_queue_len, current_stacktrace],
+    Status = rpc:call(node(Pid), erlang, process_info, [Pid, Fields], 5000),
     logger:error("lock_owner_status:~n~p", [Status]),
     _ = exit(Pid, kill),
     ok.
 
-get_process_info(Pid) ->
-    Fields = [status, message_queue_len, current_stacktrace],
-    case node(Pid) =:= node() of
-        true -> process_info(Pid, Fields);
-        false -> rpc:call(node(Pid), erlang, process_info, [Pid, Fields], 5_000)
-    end.
+-ifdef(TEST).
+force_kill_test() ->
+    Pid = spawn(fun() ->
+                        receive
+                            foo ->
+                                ok
+                        end
+                end),
+    ?assert(is_process_alive(Pid)),
+    ok = force_kill_lock_owner(Pid, resource),
+    ?assertNot(is_process_alive(Pid)).
+
+-endif.
